@@ -83,8 +83,10 @@ def get_app_config() -> dict:
 def get_current_user_id() -> str:
     """
     현재 사용자 ID 반환
-    MVP에서는 고정 ID 사용, 추후 인증 연동시 수정
+    session_state에서 로그인한 사용자의 ID를 가져옴
     """
-    # TODO: 실제 인증 구현 시 session_state에서 가져오기
-    return "default-user-id"
+    if "user" in st.session_state and st.session_state.get("user") is not None:
+        return str(st.session_state["user"].id)
+    # 로그인하지 않은 경우 (에러 처리)
+    raise ValueError("사용자가 로그인하지 않았습니다.")
 

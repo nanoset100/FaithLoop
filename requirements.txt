@@ -17,6 +17,8 @@ google-auth-oauthlib>=1.2.0
 
 # === Utilities ===
 python-dotenv>=1.0.0
+toml>=0.10.2
+requests>=2.31.0
 pandas>=2.0.0
 numpy>=1.24.0
 

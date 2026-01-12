@@ -1,16 +1,23 @@
 """
-ReflectOS - Report
-주간 회고 리포트 생성
-Step 7: RAG 기반 주간 분석 + wins/issues/patterns/next_experiments
+믿음루프(FaithLoop) - 주간 성장 리포트
+주간 신앙 성장 분석
+Step 7: RAG 기반 주간 분석 + 감사/방해요인/결단/적용
 """
 import streamlit as st
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
-st.set_page_config(page_title="Report - ReflectOS", page_icon="📊", layout="wide")
+st.set_page_config(page_title="주간 성장 리포트 - 믿음루프", page_icon="📊", layout="wide")
 
-st.title("📊 Weekly Report")
-st.caption("AI가 생성하는 주간 회고 리포트")
+# 로그인 체크
+if "user" not in st.session_state or st.session_state.get("user") is None:
+    st.warning("🔐 로그인이 필요합니다. 메인 페이지에서 로그인하세요.")
+    st.stop()
+
+user_id = st.session_state["user"].id
+
+st.title("📊 주간 성장 리포트")
+st.caption("AI가 생성하는 주간 신앙 성장 분석 (근거 기반)")
 
 # === 사이드바: 데모 데이터 제외 토글 ===
 with st.sidebar:
@@ -59,49 +66,49 @@ def generate_weekly_report_json(checkins: List[Dict], extractions: List[Dict]) -
     
     combined_text = "\n---\n".join(checkin_summaries)
     
-    # JSON 스키마 정의
+    # JSON 스키마 정의 (FaithLoop 성장 리포트)
     report_schema = {
         "type": "object",
         "properties": {
             "summary": {
                 "type": "string",
-                "description": "이번 주를 한 문장으로 요약"
+                "description": "이번 주 핵심 주제"
             },
             "wins": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "이번 주 성취/잘한 점 (최대 5개)"
+                "description": "감사 하이라이트 (최대 5개)"
             },
             "issues": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "이번 주 어려웠던 점/문제 (최대 5개)"
+                "description": "반복 방해요인(패턴) (최대 5개)"
             },
             "patterns": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "발견된 패턴/반복되는 주제 (최대 3개)"
+                "description": "결단/적용 진행 상황 (최대 3개)"
             },
             "next_experiments": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "다음 주 시도해볼 것/제안 (최대 3개)"
+                "description": "다음 주 작은 실천 3가지"
             }
         },
         "required": ["summary", "wins", "issues", "patterns", "next_experiments"],
         "additionalProperties": False
     }
     
-    system_prompt = """당신은 개인 회고 전문가입니다. 
-한 주간의 체크인 기록을 분석하여 의미 있는 주간 리포트를 생성합니다.
+    system_prompt = """당신은 신앙 성장 코치입니다. 
+한 주간의 신앙 기록(감사/기도/말씀/적용/방해요인)을 분석하여 의미 있는 성장 리포트를 생성합니다.
 
 분석 원칙:
-1. 구체적인 성취를 찾아 wins에 기록
-2. 반복되는 어려움이나 문제를 issues에 기록
-3. 감정/행동/주제의 패턴을 patterns에 기록
-4. 실행 가능한 다음 스텝을 next_experiments에 제안
+1. 감사 기록에서 하이라이트를 찾아 wins에 기록
+2. 반복되는 방해요인(분주함/유혹/감정)을 issues에 기록
+3. 결단/적용이 실제로 지켜졌는지를 patterns에 기록
+4. 다음 주 작은 실천(말씀묵상/기도/공동체)을 next_experiments에 제안
 
-말투: 긍정적이고 지지적으로, 하지만 솔직하게"""
+말투: 따뜻하고 격려하며, 기록 근거를 제시"""
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -247,11 +254,11 @@ if st.session_state.get("weekly_report"):
     report = st.session_state.weekly_report
     checkins = st.session_state.get("report_checkins", [])
     
-    st.subheader(f"📋 주간 회고 리포트")
+    st.subheader(f"📋 주간 성장 리포트")
     st.caption(f"{start_date} ~ {end_date}")
     
     # 요약
-    st.markdown(f"### 💬 한 줄 요약")
+    st.markdown(f"### 💬 이번 주 핵심 주제")
     st.info(report.get("summary", ""))
     
     # 통계 카드
@@ -276,40 +283,40 @@ if st.session_state.get("weekly_report"):
     col1, col2 = st.columns(2)
     
     with col1:
-        # Wins
+        # Wins (감사 하이라이트)
         with st.container():
-            st.markdown("### 🏆 이번 주 성취")
+            st.markdown("### 🙏 감사 하이라이트")
             wins = report.get("wins", [])
             if wins:
                 for i, win in enumerate(wins, 1):
                     st.markdown(f"{i}. {win}")
             else:
-                st.caption("기록된 성취가 없습니다")
+                st.caption("기록된 감사가 없습니다")
         
-        # Patterns
+        # Patterns (결단/적용 진행 상황)
         with st.container():
-            st.markdown("### 🔄 발견된 패턴")
+            st.markdown("### ✅ 결단/적용 진행 상황")
             patterns = report.get("patterns", [])
             if patterns:
                 for pattern in patterns:
                     st.markdown(f"• {pattern}")
             else:
-                st.caption("특별한 패턴이 발견되지 않았습니다")
+                st.caption("결단/적용 기록이 없습니다")
     
     with col2:
-        # Issues
+        # Issues (반복 방해요인)
         with st.container():
-            st.markdown("### ⚠️ 어려웠던 점")
+            st.markdown("### ⚠️ 반복 방해요인(패턴)")
             issues = report.get("issues", [])
             if issues:
                 for i, issue in enumerate(issues, 1):
                     st.markdown(f"{i}. {issue}")
             else:
-                st.caption("기록된 어려움이 없습니다")
+                st.caption("기록된 방해요인이 없습니다")
         
-        # Next Experiments
+        # Next Experiments (다음 주 작은 실천)
         with st.container():
-            st.markdown("### 🚀 다음 주 제안")
+            st.markdown("### 🚀 다음 주 작은 실천 3가지")
             experiments = report.get("next_experiments", [])
             if experiments:
                 for exp in experiments:
@@ -317,16 +324,16 @@ if st.session_state.get("weekly_report"):
             else:
                 st.caption("제안 사항이 없습니다")
     
-    # 기분 분포 차트
+    # 영적 컨디션 분포 차트
     st.divider()
-    st.markdown("### 📊 기분 분포")
+    st.markdown("### 📊 영적 컨디션 분포")
     
     mood_dist = stats.get("mood_distribution", {})
     if any(mood_dist.values()):
         import pandas as pd
         
         mood_data = {
-            "기분": ["😊 아주 좋음", "🙂 좋음", "😐 보통", "😔 안 좋음", "😢 매우 안 좋음"],
+            "컨디션": ["🙏 평안/감사", "✨ 은혜로움", "📖 보통", "🌧️ 분주/낙심", "😢 힘든 하루"],
             "횟수": [
                 mood_dist.get("great", 0),
                 mood_dist.get("good", 0),
@@ -336,16 +343,16 @@ if st.session_state.get("weekly_report"):
             ]
         }
         df = pd.DataFrame(mood_data)
-        st.bar_chart(df.set_index("기분"))
+        st.bar_chart(df.set_index("컨디션"))
     
-    # 원문 보기 (소스 링크)
+    # 원문 보기 (소스 링크) - 근거 표시
     st.divider()
-    with st.expander("📖 원문 체크인 보기"):
+    with st.expander("📖 원문 신앙 기록 보기 (근거)"):
         for checkin in checkins:
             with st.container():
                 date = checkin.get("created_at", "")[:10]
                 mood = checkin.get("mood", "neutral")
-                mood_emoji = {"great": "😊", "good": "🙂", "neutral": "😐", "bad": "😔", "terrible": "😢"}
+                mood_emoji = {"great": "🙏", "good": "✨", "neutral": "📖", "bad": "🌧️", "terrible": "😢"}
                 
                 col1, col2 = st.columns([1, 5])
                 with col1:
@@ -364,30 +371,30 @@ else:
     
     with st.container():
         st.markdown("""
-        ## 주간 회고 리포트 예시
+        ## 주간 성장 리포트 예시
         
         ---
         
-        ### 💬 한 줄 요약
-        > 업무와 건강의 균형을 찾아가는 한 주였습니다.
+        ### 💬 이번 주 핵심 주제
+        > 감사와 기도를 통해 평안을 회복해가는 한 주였습니다.
         
         ---
         
-        ### 🏆 이번 주 성취
-        1. 프로젝트 MVP 완료
-        2. 아침 명상 5일 연속 달성
-        3. 새로운 아이디어 3개 기록
+        ### 🙏 감사 하이라이트
+        1. 가족과 함께한 주일 예배
+        2. 어려운 일에서 지혜를 얻음
+        3. 새벽기도 3일 연속 참석
         
-        ### ⚠️ 어려웠던 점
-        1. 오후 집중력 저하
-        2. 회의가 너무 많음
+        ### ⚠️ 반복 방해요인(패턴)
+        1. SNS에 시간을 많이 뺏김
+        2. 바쁜 일정으로 기도 시간 부족
         
-        ### 🔄 발견된 패턴
-        • 화요일과 목요일에 생산성이 높음
-        • 점심 후 에너지 저하
+        ### ✅ 결단/적용 진행 상황
+        • "두려워하지 말라" 말씀 적용 → 면접에서 담대히 말함
+        • 저녁 묵상 습관 시작
         
-        ### 🚀 다음 주 제안
-        - [ ] 오후 시간에 산책 추가
-        - [ ] 회의 없는 날 만들기
-        - [ ] 저녁 회고 습관 시작
+        ### 🚀 다음 주 작은 실천 3가지
+        - [ ] 매일 감사 1가지 기록
+        - [ ] 새벽기도 2회 참석
+        - [ ] 공동체 모임 참여
         """)

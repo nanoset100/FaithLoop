@@ -468,3 +468,485 @@ def get_checkins_date_range(
     except Exception as e:
         return []
 
+
+# ============================================
+# FaithLoop 파일럿 - 프로필 함수
+# ============================================
+
+def get_user_profile(user_id: str) -> dict | None:
+    """사용자 프로필 조회"""
+    try:
+        supabase = get_supabase_client()
+        if not supabase:
+            return None
+        
+        result = supabase.table("profiles").select("*").eq("user_id", user_id).execute()
+        
+        if result.data and len(result.data) > 0:
+            return result.data[0]
+        return None
+    except Exception as e:
+        print(f"[get_user_profile] Error: {e}")
+        return None
+
+
+def create_user_profile(user_id: str, email: str, display_name: str, role: str = "member", invite_code: str = None) -> dict | None:
+    """사용자 프로필 생성"""
+    try:
+        supabase = get_supabase_client()
+        if not supabase:
+            return None
+        
+        data = {
+            "user_id": user_id,
+            "email": email,
+            "display_name": display_name,
+            "role": role,
+            "invite_code_used": invite_code
+        }
+        
+        result = supabase.table("profiles").insert(data).execute()
+        
+        if result.data and len(result.data) > 0:
+            return result.data[0]
+        return None
+    except Exception as e:
+        print(f"[create_user_profile] Error: {e}")
+        return None
+
+
+def is_admin(user_id: str) -> bool:
+    """관리자 여부 확인"""
+    profile = get_user_profile(user_id)
+    if profile:
+        return profile.get("role") == "admin"
+    return False
+
+
+def validate_invite_code(code: str) -> dict | None:
+    """초대코드 유효성 검증"""
+    try:
+        supabase = get_supabase_client()
+        if not supabase:
+            return None
+        
+        result = supabase.table("invite_codes").select("*").eq("code", code).eq("is_active", True).execute()
+        
+        if result.data and len(result.data) > 0:
+            invite = result.data[0]
+            if invite.get("max_uses") and invite.get("current_uses", 0) >= invite["max_uses"]:
+                return None
+            return invite
+        return None
+    except Exception as e:
+        print(f"[validate_invite_code] Error: {e}")
+        return None
+
+
+# ============================================
+# FaithLoop 파일럿 - 설교 함수
+# ============================================
+
+def create_sermon(title: str, sermon_date: str, scripture: str, preacher: str, 
+                  summary: str, application_question: str, created_by: str = None) -> dict | None:
+    """설교 생성 (관리자용)"""
+    try:
+        supabase = get_supabase_client()
+        if not supabase:
+            return None
+        
+        data = {
+            "title": title,
+            "sermon_date": sermon_date,
+            "scripture": scripture,
+            "preacher": preacher,
+            "summary": summary,
+            "application_question": application_question,
+            "status": "draft"
+        }
+        
+        if created_by:
+            data["created_by"] = created_by
+        
+        result = supabase.table("sermons").insert(data).execute()
+        
+        if result.data and len(result.data) > 0:
+            return result.data[0]
+        return None
+    except Exception as e:
+        print(f"[create_sermon] Error: {e}")
+        return None
+
+
+def update_sermon(sermon_id: str, **kwargs) -> dict | None:
+    """설교 수정 (관리자용)"""
+    try:
+        supabase = get_supabase_client()
+        if not supabase:
+            return None
+        
+        result = supabase.table("sermons").update(kwargs).eq("id", sermon_id).execute()
+        
+        if result.data and len(result.data) > 0:
+            return result.data[0]
+        return None
+    except Exception as e:
+        print(f"[update_sermon] Error: {e}")
+        return None
+
+
+def publish_sermon(sermon_id: str) -> dict | None:
+    """설교 배포 (관리자용)"""
+    try:
+        supabase = get_supabase_client()
+        if not supabase:
+            return None
+        
+        from datetime import datetime
+        result = supabase.table("sermons").update({
+            "status": "published",
+            "published_at": datetime.now().isoformat()
+        }).eq("id", sermon_id).execute()
+        
+        if result.data and len(result.data) > 0:
+            return result.data[0]
+        return None
+    except Exception as e:
+        print(f"[publish_sermon] Error: {e}")
+        return None
+
+
+def unpublish_sermon(sermon_id: str) -> dict | None:
+    """설교 배포 취소 (관리자용)"""
+    try:
+        supabase = get_supabase_client()
+        if not supabase:
+            return None
+        
+        result = supabase.table("sermons").update({
+            "status": "draft",
+            "published_at": None
+        }).eq("id", sermon_id).execute()
+        
+        if result.data and len(result.data) > 0:
+            return result.data[0]
+        return None
+    except Exception as e:
+        print(f"[unpublish_sermon] Error: {e}")
+        return None
+
+
+def delete_sermon(sermon_id: str) -> bool:
+    """설교 삭제 (관리자용)"""
+    try:
+        supabase = get_supabase_client()
+        if not supabase:
+            return False
+        
+        supabase.table("sermons").delete().eq("id", sermon_id).execute()
+        return True
+    except Exception as e:
+        print(f"[delete_sermon] Error: {e}")
+        return False
+
+
+def list_sermons_admin() -> list:
+    """모든 설교 목록 (관리자용)"""
+    try:
+        supabase = get_supabase_client()
+        if not supabase:
+            return []
+        
+        result = supabase.table("sermons").select("*").order("sermon_date", desc=True).execute()
+        return result.data if result.data else []
+    except Exception as e:
+        print(f"[list_sermons_admin] Error: {e}")
+        return []
+
+
+def list_sermons_published() -> list:
+    """배포된 설교 목록 (교인용)"""
+    try:
+        supabase = get_supabase_client()
+        if not supabase:
+            return []
+        
+        result = supabase.table("sermons").select("*").eq("status", "published").order("sermon_date", desc=True).execute()
+        return result.data if result.data else []
+    except Exception as e:
+        print(f"[list_sermons_published] Error: {e}")
+        return []
+
+
+def get_sermon(sermon_id: str) -> dict | None:
+    """설교 상세 조회"""
+    try:
+        supabase = get_supabase_client()
+        if not supabase:
+            return None
+        
+        result = supabase.table("sermons").select("*").eq("id", sermon_id).execute()
+        
+        if result.data and len(result.data) > 0:
+            return result.data[0]
+        return None
+    except Exception as e:
+        print(f"[get_sermon] Error: {e}")
+        return None
+
+
+def get_latest_sermon() -> dict | None:
+    """최신 배포 설교 조회"""
+    try:
+        supabase = get_supabase_client()
+        if not supabase:
+            return None
+        
+        result = supabase.table("sermons").select("*").eq("status", "published").order("sermon_date", desc=True).limit(1).execute()
+        
+        if result.data and len(result.data) > 0:
+            return result.data[0]
+        return None
+    except Exception as e:
+        print(f"[get_latest_sermon] Error: {e}")
+        return None
+
+
+def save_sermon_application(sermon_id: str, user_id: str, my_application: str) -> dict | None:
+    """교인 적용 저장"""
+    try:
+        supabase = get_supabase_client()
+        if not supabase:
+            return None
+        
+        data = {
+            "sermon_id": sermon_id,
+            "user_id": user_id,
+            "my_application": my_application
+        }
+        
+        result = supabase.table("sermon_applications").upsert(data, on_conflict="sermon_id,user_id").execute()
+        
+        if result.data and len(result.data) > 0:
+            return result.data[0]
+        return None
+    except Exception as e:
+        print(f"[save_sermon_application] Error: {e}")
+        return None
+
+
+def get_sermon_application(sermon_id: str, user_id: str) -> dict | None:
+    """교인 적용 조회"""
+    try:
+        supabase = get_supabase_client()
+        if not supabase:
+            return None
+        
+        result = supabase.table("sermon_applications").select("*").eq("sermon_id", sermon_id).eq("user_id", user_id).execute()
+        
+        if result.data and len(result.data) > 0:
+            return result.data[0]
+        return None
+    except Exception as e:
+        print(f"[get_sermon_application] Error: {e}")
+        return None
+
+
+# ============================================
+# FaithLoop 파일럿 - 기도노트 함수
+# ============================================
+
+def create_prayer(user_id: str, title: str, content: str = None, tags: list = None) -> dict | None:
+    """기도제목 생성"""
+    try:
+        supabase = get_supabase_client()
+        if not supabase:
+            return None
+        
+        data = {
+            "user_id": user_id,
+            "title": title,
+            "content": content,
+            "tags": tags or [],
+            "status": "praying"
+        }
+        
+        result = supabase.table("prayers").insert(data).execute()
+        
+        if result.data and len(result.data) > 0:
+            return result.data[0]
+        return None
+    except Exception as e:
+        print(f"[create_prayer] Error: {e}")
+        return None
+
+
+def update_prayer(prayer_id: str, **kwargs) -> dict | None:
+    """기도제목 수정"""
+    try:
+        supabase = get_supabase_client()
+        if not supabase:
+            return None
+        
+        result = supabase.table("prayers").update(kwargs).eq("id", prayer_id).execute()
+        
+        if result.data and len(result.data) > 0:
+            return result.data[0]
+        return None
+    except Exception as e:
+        print(f"[update_prayer] Error: {e}")
+        return None
+
+
+def mark_prayer_answered(prayer_id: str, answer_note: str = None) -> dict | None:
+    """기도 응답 처리"""
+    try:
+        supabase = get_supabase_client()
+        if not supabase:
+            return None
+        
+        from datetime import datetime
+        result = supabase.table("prayers").update({
+            "status": "answered",
+            "answer_note": answer_note,
+            "answered_at": datetime.now().isoformat()
+        }).eq("id", prayer_id).execute()
+        
+        if result.data and len(result.data) > 0:
+            return result.data[0]
+        return None
+    except Exception as e:
+        print(f"[mark_prayer_answered] Error: {e}")
+        return None
+
+
+def delete_prayer(prayer_id: str) -> bool:
+    """기도제목 삭제"""
+    try:
+        supabase = get_supabase_client()
+        if not supabase:
+            return False
+        
+        supabase.table("prayers").delete().eq("id", prayer_id).execute()
+        return True
+    except Exception as e:
+        print(f"[delete_prayer] Error: {e}")
+        return False
+
+
+def list_prayers(user_id: str, status: str = None, tag: str = None) -> list:
+    """기도제목 목록 조회"""
+    try:
+        supabase = get_supabase_client()
+        if not supabase:
+            return []
+        
+        query = supabase.table("prayers").select("*").eq("user_id", user_id)
+        
+        if status:
+            query = query.eq("status", status)
+        
+        if tag:
+            query = query.contains("tags", [tag])
+        
+        result = query.order("created_at", desc=True).execute()
+        return result.data if result.data else []
+    except Exception as e:
+        print(f"[list_prayers] Error: {e}")
+        return []
+
+
+def get_prayer_stats(user_id: str) -> dict:
+    """기도 통계"""
+    try:
+        supabase = get_supabase_client()
+        if not supabase:
+            return {"total": 0, "praying": 0, "answered": 0}
+        
+        result = supabase.table("prayers").select("status").eq("user_id", user_id).execute()
+        
+        if result.data:
+            total = len(result.data)
+            praying = len([p for p in result.data if p["status"] == "praying"])
+            answered = len([p for p in result.data if p["status"] == "answered"])
+            return {"total": total, "praying": praying, "answered": answered}
+        
+        return {"total": 0, "praying": 0, "answered": 0}
+    except Exception as e:
+        print(f"[get_prayer_stats] Error: {e}")
+        return {"total": 0, "praying": 0, "answered": 0}
+
+
+# ============================================
+# Auth 함수
+# ============================================
+
+def sign_up(email: str, password: str, display_name: str = None):
+    """회원가입"""
+    try:
+        supabase = get_supabase_client()
+        if not supabase:
+            return None, "DB 연결 실패"
+        
+        response = supabase.auth.sign_up({
+            "email": email,
+            "password": password,
+            "options": {
+                "data": {
+                    "display_name": display_name or email.split("@")[0]
+                }
+            }
+        })
+        
+        if response.user:
+            return response.user, None
+        return None, "회원가입 실패"
+    except Exception as e:
+        return None, str(e)
+
+
+def sign_in(email: str, password: str):
+    """로그인"""
+    try:
+        supabase = get_supabase_client()
+        if not supabase:
+            return None, "DB 연결 실패"
+        
+        response = supabase.auth.sign_in_with_password({
+            "email": email,
+            "password": password
+        })
+        
+        if response.user:
+            return response.user, response.session
+        return None, None
+    except Exception as e:
+        print(f"[sign_in] Error: {e}")
+        return None, None
+
+
+def sign_out():
+    """로그아웃"""
+    try:
+        supabase = get_supabase_client()
+        if supabase:
+            supabase.auth.sign_out()
+        return True
+    except Exception as e:
+        print(f"[sign_out] Error: {e}")
+        return False
+
+
+def get_current_user():
+    """현재 로그인된 사용자 조회"""
+    try:
+        supabase = get_supabase_client()
+        if not supabase:
+            return None
+        
+        response = supabase.auth.get_user()
+        if response:
+            return response.user
+        return None
+    except:
+        return None

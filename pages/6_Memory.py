@@ -1,15 +1,22 @@
 """
-ReflectOS - Memory
-RAG 기반 기억 검색 및 인사이트 생성
+믿음루프(FaithLoop) - 기억검색
+RAG 기반 신앙 기록 검색 및 인사이트 생성
 Step 6: 벡터 검색 + 소스 표시
 """
 import streamlit as st
 from datetime import datetime
 
-st.set_page_config(page_title="Memory - ReflectOS", page_icon="🧠", layout="wide")
+st.set_page_config(page_title="기억검색 - 믿음루프", page_icon="🧠", layout="wide")
 
-st.title("🧠 Memory Search")
-st.caption("AI가 과거 기록에서 관련 내용을 찾아 답변합니다")
+# 로그인 체크
+if "user" not in st.session_state or st.session_state.get("user") is None:
+    st.warning("🔐 로그인이 필요합니다. 메인 페이지에서 로그인하세요.")
+    st.stop()
+
+user_id = st.session_state["user"].id
+
+st.title("🧠 기억검색")
+st.caption("AI가 과거 신앙 기록에서 관련 내용을 찾아 답변합니다 (근거 기반)")
 
 # === 사이드바: 검색 설정 ===
 with st.sidebar:
@@ -55,7 +62,7 @@ st.subheader("🔍 무엇이 궁금하세요?")
 
 search_query = st.text_input(
     "질문 입력",
-    placeholder="예: 내가 자주 미루는 이유는? / 지난달 성취한 것들 / 건강 관련 기록...",
+    placeholder="예: 최근 반복된 방해요인은? / 내 감사 기록 주제 / 결단이 지켜진 사례...",
     label_visibility="collapsed"
 )
 
@@ -71,11 +78,11 @@ if example_btn:
 
 if st.session_state.get("show_examples"):
     example_questions = [
-        "내가 자주 미루는 이유가 뭘까?",
-        "최근 한 달간 기분 패턴은?",
-        "내가 언급한 프로젝트들은?",
-        "스트레스 받을 때 뭘 했지?",
-        "성공적이었던 습관들은?"
+        "최근 한 달 동안 반복된 방해요인은 뭐야?",
+        "내 감사 기록에서 가장 자주 등장한 주제를 요약해줘(근거 포함)",
+        "내 결단이 실제로 지켜진 사례를 찾아줘(기록 근거)",
+        "최근 기도제목에서 반복되는 패턴이 있어?",
+        "내가 말씀에서 은혜받은 구절들을 정리해줘"
     ]
     
     selected = st.selectbox(
@@ -220,9 +227,9 @@ except Exception as e:
 # === 수동 동기화 ===
 st.divider()
 st.subheader("🔄 기억 동기화")
-st.caption("아직 인덱싱되지 않은 체크인을 벡터로 변환합니다")
+st.caption("아직 인덱싱되지 않은 신앙 기록을 벡터로 변환합니다")
 
-if st.button("📥 체크인 동기화", use_container_width=True):
+if st.button("📥 신앙 기록 동기화", use_container_width=True):
     with st.spinner("동기화 중..."):
         try:
             from lib.config import get_supabase_client, get_current_user_id
@@ -243,7 +250,7 @@ if st.button("📥 체크인 동기화", use_container_width=True):
                 new_checkins = [c for c in (checkins.data or []) if c["id"] not in existing_ids]
                 
                 if not new_checkins:
-                    st.info("✅ 모든 체크인이 이미 동기화되어 있습니다.")
+                    st.info("✅ 모든 신앙 기록이 이미 동기화되어 있습니다.")
                 else:
                     progress = st.progress(0)
                     success_count = 0
@@ -253,7 +260,7 @@ if st.button("📥 체크인 동기화", use_container_width=True):
                             success_count += 1
                         progress.progress((i + 1) / len(new_checkins))
                     
-                    st.success(f"✅ {success_count}/{len(new_checkins)}개 체크인 동기화 완료!")
+                    st.success(f"✅ {success_count}/{len(new_checkins)}개 신앙 기록 동기화 완료!")
                     st.rerun()
                     
         except Exception as e:

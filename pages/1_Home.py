@@ -1,15 +1,22 @@
 """
-ReflectOS - Home (대시보드)
-최근 체크인 목록 및 요약 표시
+믿음루프(FaithLoop) - Home (대시보드)
+최근 신앙 기록 목록 및 요약 표시
 Step 9: Google Calendar 일정 표시
 """
 import streamlit as st
 from datetime import datetime
 
-st.set_page_config(page_title="Home - ReflectOS", page_icon="🏠", layout="wide")
+st.set_page_config(page_title="Home - 믿음루프", page_icon="🏠", layout="wide")
+
+# 로그인 체크
+if "user" not in st.session_state or st.session_state.get("user") is None:
+    st.warning("🔐 로그인이 필요합니다. 메인 페이지에서 로그인하세요.")
+    st.stop()
+
+user_id = st.session_state["user"].id
 
 st.title("🏠 Home")
-st.caption("최근 기록과 오늘의 요약을 확인하세요")
+st.caption("최근 신앙 기록과 오늘의 은혜를 확인하세요")
 
 # === 사이드바: 데모 데이터 제외 토글 ===
 with st.sidebar:
@@ -62,7 +69,7 @@ try:
         st.success("✅ Supabase 연결됨")
         
         # 최근 체크인 목록 가져오기
-        st.subheader("📝 최근 체크인")
+        st.subheader("📝 최근 신앙 기록")
         
         checkins = list_checkins(limit=10, exclude_demo=st.session_state.get("exclude_demo", True))
         
@@ -80,14 +87,14 @@ try:
                     else:
                         date_str = "날짜 없음"
                     
-                    # 무드 이모지 매핑
+                    # 영적 컨디션 이모지 매핑
                     mood_emoji = {
-                        "great": "😊",
-                        "good": "🙂", 
-                        "neutral": "😐",
-                        "bad": "😔",
+                        "great": "🙏",
+                        "good": "✨", 
+                        "neutral": "📖",
+                        "bad": "🌧️",
                         "terrible": "😢"
-                    }.get(checkin.get("mood", ""), "📝")
+                    }.get(checkin.get("mood", ""), "✝️")
                     
                     col1, col2 = st.columns([1, 4])
                     with col1:
@@ -101,7 +108,7 @@ try:
                         if tags:
                             st.caption(" ".join([f"`{tag}`" for tag in tags]))
         else:
-            st.info("아직 체크인 기록이 없습니다. **Check-in** 페이지에서 첫 기록을 남겨보세요!")
+            st.info("아직 신앙 기록이 없습니다. **오늘의 기록** 페이지에서 감사/기도/말씀을 남겨보세요!")
             
     else:
         st.warning("⚠️ Supabase 연결 설정이 필요합니다")
@@ -111,17 +118,17 @@ except ImportError as e:
     st.code(str(e))
     
     # 데모 데이터로 UI 미리보기
-    st.subheader("📝 최근 체크인 (데모)")
+    st.subheader("📝 최근 신앙 기록 (데모)")
     
     demo_checkins = [
-        {"mood": "great", "content": "오늘 프로젝트 MVP 완성! 뿌듯하다.", "date": "2024-01-15 09:30"},
-        {"mood": "good", "content": "아침 명상 30분 완료. 집중력이 좋아졌다.", "date": "2024-01-14 08:00"},
-        {"mood": "neutral", "content": "회의가 길었지만 나름 생산적이었다.", "date": "2024-01-13 18:00"},
+        {"mood": "great", "content": "오늘 예배에서 큰 은혜를 받았다. 하나님께 감사드린다.", "date": "2024-01-15 09:30"},
+        {"mood": "good", "content": "새벽기도 참석. 말씀 묵상 중 '두려워하지 말라'는 구절이 마음에 와닿았다.", "date": "2024-01-14 08:00"},
+        {"mood": "neutral", "content": "바쁜 하루였지만 잠시 기도하며 마음을 정돈했다.", "date": "2024-01-13 18:00"},
     ]
     
     for item in demo_checkins:
         with st.container():
-            mood_emoji = {"great": "😊", "good": "🙂", "neutral": "😐"}.get(item["mood"], "📝")
+            mood_emoji = {"great": "🙏", "good": "✨", "neutral": "📖"}.get(item["mood"], "✝️")
             col1, col2 = st.columns([1, 4])
             with col1:
                 st.markdown(f"### {mood_emoji}")
@@ -134,34 +141,41 @@ except Exception as e:
 
 # === 오늘의 요약 섹션 ===
 st.divider()
-st.subheader("📊 오늘의 요약")
+st.subheader("📊 오늘의 신앙 요약")
 
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    st.metric(label="체크인", value="0회", delta="목표: 3회")
+    st.metric(label="감사/기도 기록", value="0회", delta="목표: 1회")
     
 with col2:
-    st.metric(label="계획 완료율", value="0%", delta="0/0 블록")
+    st.metric(label="말씀 묵상", value="0회", delta="오늘의 적용")
     
 with col3:
-    st.metric(label="연속 기록", value="0일", delta="최고: 0일")
+    st.metric(label="연속 기록", value="0일", delta="꾸준히 성장 중")
 
 # === 퀵 액션 ===
 st.divider()
 st.subheader("⚡ 빠른 시작")
 
-col1, col2, col3 = st.columns(3)
+col1, col2, col3, col4 = st.columns(4)
 
 with col1:
-    if st.button("✍️ 새 체크인", use_container_width=True):
-        st.switch_page("pages/2_Checkin.py")
-        
+    if st.button("📖 설교노트", use_container_width=True, type="primary"):
+        st.switch_page("pages/2_Sermon.py")
+
 with col2:
-    if st.button("📅 오늘 플래너", use_container_width=True):
-        st.switch_page("pages/4_Planner.py")
+    if st.button("✍️ 오늘의 기록", use_container_width=True):
+        st.switch_page("pages/3_Checkin.py")
         
 with col3:
-    if st.button("🧠 기억 검색", use_container_width=True):
-        st.switch_page("pages/5_Memory.py")
+    if st.button("🙏 기도노트", use_container_width=True):
+        st.switch_page("pages/4_Prayer.py")
+        
+with col4:
+    if st.button("🧠 기억검색", use_container_width=True):
+        st.switch_page("pages/6_Memory.py")
 
+# === 안전 문구 ===
+st.divider()
+st.caption("이 앱은 목회상담/의료를 대체하지 않으며, 기록 기반 성찰과 루틴 형성을 돕습니다.")

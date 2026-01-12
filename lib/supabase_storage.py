@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 
 
-BUCKET_NAME = "artifacts"  # Supabase Storage 버킷 이름
+BUCKET_NAME = "artifacts"  # 기본 Supabase Storage 버킷 이름 (하위 호환성)
 
 
 def upload_file(
@@ -25,7 +25,9 @@ def upload_file(
         file_data: 파일 바이너리 데이터
         file_name: 원본 파일명
         content_type: MIME 타입 (image/jpeg, audio/mp3 등)
-        folder: 저장 폴더 (uploads, images, audio 등)
+        folder: bucket 이름 또는 저장 폴더
+                - "audio-files", "image-files" 같은 경우 bucket 이름으로 사용
+                - "uploads", "images", "audio" 같은 경우 기본 bucket 내의 폴더로 사용
     
     Returns:
         storage_path: 저장된 경로 (없으면 None)
@@ -37,14 +39,24 @@ def upload_file(
         
         user_id = get_current_user_id()
         
-        # 고유 파일명 생성
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        unique_id = str(uuid.uuid4())[:8]
-        ext = file_name.split(".")[-1] if "." in file_name else "bin"
-        storage_path = f"{user_id}/{folder}/{timestamp}_{unique_id}.{ext}"
+        # bucket 이름 결정: "audio-files", "image-files" 같은 경우 bucket 이름으로 사용
+        if folder in ["audio-files", "image-files"]:
+            bucket_name = folder
+            # bucket 내 경로는 user_id만 사용
+            timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+            unique_id = str(uuid.uuid4())[:8]
+            ext = file_name.split(".")[-1] if "." in file_name else "bin"
+            storage_path = f"{user_id}/{timestamp}_{unique_id}.{ext}"
+        else:
+            # 기본 bucket 사용 (하위 호환성)
+            bucket_name = BUCKET_NAME
+            timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+            unique_id = str(uuid.uuid4())[:8]
+            ext = file_name.split(".")[-1] if "." in file_name else "bin"
+            storage_path = f"{user_id}/{folder}/{timestamp}_{unique_id}.{ext}"
         
         # 업로드
-        response = client.storage.from_(BUCKET_NAME).upload(
+        response = client.storage.from_(bucket_name).upload(
             path=storage_path,
             file=file_data,
             file_options={"content-type": content_type}

@@ -1,188 +1,349 @@
 -- ============================================
--- ReflectOS - Database Schema
--- Supabase PostgreSQL + pgvector
+-- FaithLoop - Database Schema
+-- Supabase PostgreSQL + pgvector + Auth
+-- 파일럿 100명용
 -- ============================================
 
--- pgvector 확장 활성화 (Supabase에서 Extensions에서 활성화 필요)
+-- pgvector 확장 활성화 (Supabase Extensions에서 활성화 필요)
 CREATE EXTENSION IF NOT EXISTS vector;
 
 -- ============================================
--- 1. profiles - 사용자 프로필
+-- 1. profiles - 사용자 프로필 (Auth 연동)
 -- ============================================
 CREATE TABLE IF NOT EXISTS profiles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id TEXT NOT NULL UNIQUE,  -- MVP: 단일 사용자 ID 문자열
-    display_name TEXT,
+    user_id UUID UNIQUE NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     email TEXT,
+    display_name TEXT,
+    role TEXT DEFAULT 'member',  -- 'member', 'admin'
     timezone TEXT DEFAULT 'Asia/Seoul',
-    settings JSONB DEFAULT '{}',  -- 사용자 설정 (알림, 테마 등)
+    invite_code_used TEXT,
+    settings JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 인덱스
 CREATE INDEX IF NOT EXISTS idx_profiles_user_id ON profiles(user_id);
+CREATE INDEX IF NOT EXISTS idx_profiles_role ON profiles(role);
+
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "profiles_select_own" ON profiles
+    FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "profiles_insert_own" ON profiles
+    FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "profiles_update_own" ON profiles
+    FOR UPDATE USING (auth.uid() = user_id);
+
 
 -- ============================================
--- 2. checkins - 일일 체크인 (핵심 기록)
+-- 2. invite_codes - 초대코드 (파일럿용)
+-- ============================================
+CREATE TABLE IF NOT EXISTS invite_codes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    code TEXT UNIQUE NOT NULL,
+    description TEXT,
+    is_active BOOLEAN DEFAULT true,
+    max_uses INTEGER,
+    current_uses INTEGER DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE invite_codes ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "invite_codes_select_all" ON invite_codes
+    FOR SELECT USING (true);
+CREATE POLICY "invite_codes_update_admin" ON invite_codes
+    FOR UPDATE USING (
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE profiles.user_id = auth.uid()
+            AND profiles.role = 'admin'
+        )
+    );
+
+-- 초대코드 사용량 증가 함수
+CREATE OR REPLACE FUNCTION increment_invite_usage(code_param TEXT)
+RETURNS VOID AS $$
+BEGIN
+    UPDATE invite_codes
+    SET current_uses = current_uses + 1
+    WHERE code = code_param;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 초기 데이터: 파일럿 초대코드
+INSERT INTO invite_codes (code, description, max_uses)
+VALUES ('FAITHLOOP2024', '파일럿 100명용 초대코드', 100)
+ON CONFLICT (code) DO NOTHING;
+
+
+-- ============================================
+-- 3. checkins - 오늘의 기록 (일일 체크인)
 -- ============================================
 CREATE TABLE IF NOT EXISTS checkins (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id TEXT NOT NULL,
-    content TEXT NOT NULL,  -- 체크인 본문
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
     mood TEXT CHECK (mood IN ('great', 'good', 'neutral', 'bad', 'terrible')),
-    tags TEXT[] DEFAULT '{}',  -- 태그 배열
-    metadata JSONB DEFAULT '{}',  -- 추가 메타데이터
+    tags TEXT[] DEFAULT '{}',
+    metadata JSONB DEFAULT '{}',
+    is_demo BOOLEAN DEFAULT false,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 인덱스
 CREATE INDEX IF NOT EXISTS idx_checkins_user_id ON checkins(user_id);
 CREATE INDEX IF NOT EXISTS idx_checkins_created_at ON checkins(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_checkins_mood ON checkins(mood);
 CREATE INDEX IF NOT EXISTS idx_checkins_tags ON checkins USING GIN(tags);
 
+ALTER TABLE checkins ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "checkins_own" ON checkins
+    FOR ALL USING (auth.uid() = user_id);
+
+
 -- ============================================
--- 3. artifacts - 멀티모달 첨부파일
+-- 4. sermons - 설교 (관리자 등록)
+-- ============================================
+CREATE TABLE IF NOT EXISTS sermons (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title TEXT NOT NULL,
+    sermon_date DATE NOT NULL,
+    scripture TEXT,
+    preacher TEXT,
+    summary TEXT,
+    application_question TEXT,
+    status TEXT DEFAULT 'draft',  -- 'draft', 'published'
+    published_at TIMESTAMPTZ,
+    created_by UUID REFERENCES auth.users(id),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_sermons_date ON sermons(sermon_date DESC);
+CREATE INDEX IF NOT EXISTS idx_sermons_status ON sermons(status);
+
+ALTER TABLE sermons ENABLE ROW LEVEL SECURITY;
+
+-- 모든 로그인 사용자가 published 설교 조회 가능
+CREATE POLICY "sermons_select_published" ON sermons
+    FOR SELECT USING (status = 'published');
+
+-- admin만 모든 설교 관리 가능
+CREATE POLICY "sermons_admin_all" ON sermons
+    FOR ALL USING (
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE profiles.user_id = auth.uid()
+            AND profiles.role = 'admin'
+        )
+    );
+
+
+-- ============================================
+-- 5. sermon_applications - 교인별 설교 적용
+-- ============================================
+CREATE TABLE IF NOT EXISTS sermon_applications (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    sermon_id UUID NOT NULL REFERENCES sermons(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    my_application TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(sermon_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_sermon_applications_sermon ON sermon_applications(sermon_id);
+CREATE INDEX IF NOT EXISTS idx_sermon_applications_user ON sermon_applications(user_id);
+
+ALTER TABLE sermon_applications ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "sermon_applications_own" ON sermon_applications
+    FOR ALL USING (auth.uid() = user_id);
+
+
+-- ============================================
+-- 6. prayers - 기도노트
+-- ============================================
+CREATE TABLE IF NOT EXISTS prayers (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    content TEXT,
+    tags TEXT[],  -- {'가족', '건강', '사역', '직장', '감사', '중보', '회개', '기타'}
+    status TEXT DEFAULT 'praying',  -- 'praying', 'answered', 'ongoing'
+    answer_note TEXT,
+    answered_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_prayers_user ON prayers(user_id);
+CREATE INDEX IF NOT EXISTS idx_prayers_status ON prayers(status);
+CREATE INDEX IF NOT EXISTS idx_prayers_created ON prayers(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_prayers_tags ON prayers USING GIN(tags);
+
+ALTER TABLE prayers ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "prayers_own" ON prayers
+    FOR ALL USING (auth.uid() = user_id);
+
+
+-- ============================================
+-- 7. artifacts - 멀티모달 첨부파일
 -- ============================================
 CREATE TABLE IF NOT EXISTS artifacts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id TEXT NOT NULL,
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     checkin_id UUID REFERENCES checkins(id) ON DELETE CASCADE,
     type TEXT NOT NULL CHECK (type IN ('image', 'audio', 'file')),
-    storage_path TEXT NOT NULL,  -- Supabase Storage 경로
+    storage_path TEXT NOT NULL,
     original_name TEXT,
     file_size INTEGER,
     mime_type TEXT,
-    metadata JSONB DEFAULT '{}',  -- 분석 결과, 전사 텍스트 등
+    metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 인덱스
-CREATE INDEX IF NOT EXISTS idx_artifacts_checkin_id ON artifacts(checkin_id);
-CREATE INDEX IF NOT EXISTS idx_artifacts_user_id ON artifacts(user_id);
+CREATE INDEX IF NOT EXISTS idx_artifacts_checkin ON artifacts(checkin_id);
+CREATE INDEX IF NOT EXISTS idx_artifacts_user ON artifacts(user_id);
+
+ALTER TABLE artifacts ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "artifacts_own" ON artifacts
+    FOR ALL USING (auth.uid() = user_id);
+
 
 -- ============================================
--- 4. extractions - AI 추출 데이터
+-- 8. extractions - AI 추출 데이터
 -- ============================================
 CREATE TABLE IF NOT EXISTS extractions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id TEXT NOT NULL,
-    source_type TEXT NOT NULL,  -- 'checkin', 'artifact', 'calendar'
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    source_type TEXT NOT NULL,  -- 'checkin', 'artifact', 'prayer'
     source_id UUID NOT NULL,
-    extraction_type TEXT NOT NULL,  -- 'keywords', 'sentiment', 'summary', 'transcription'
-    data JSONB NOT NULL,  -- 추출된 데이터
+    extraction_type TEXT NOT NULL,  -- 'keywords', 'sentiment', 'summary'
+    data JSONB NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 인덱스
 CREATE INDEX IF NOT EXISTS idx_extractions_source ON extractions(source_type, source_id);
-CREATE INDEX IF NOT EXISTS idx_extractions_user_id ON extractions(user_id);
+CREATE INDEX IF NOT EXISTS idx_extractions_user ON extractions(user_id);
+
+ALTER TABLE extractions ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "extractions_own" ON extractions
+    FOR ALL USING (auth.uid() = user_id);
+
 
 -- ============================================
--- 5. calendar_events - 외부 캘린더 동기화
--- ============================================
-CREATE TABLE IF NOT EXISTS calendar_events (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id TEXT NOT NULL,
-    external_id TEXT,  -- Google Calendar event ID
-    provider TEXT DEFAULT 'google',  -- 'google', 'outlook' 등
-    title TEXT NOT NULL,
-    description TEXT,
-    start_time TIMESTAMPTZ NOT NULL,
-    end_time TIMESTAMPTZ NOT NULL,
-    location TEXT,
-    attendees JSONB DEFAULT '[]',
-    metadata JSONB DEFAULT '{}',
-    synced_at TIMESTAMPTZ DEFAULT NOW(),
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 인덱스
-CREATE INDEX IF NOT EXISTS idx_calendar_events_user_id ON calendar_events(user_id);
-CREATE INDEX IF NOT EXISTS idx_calendar_events_time ON calendar_events(start_time, end_time);
-CREATE INDEX IF NOT EXISTS idx_calendar_events_external ON calendar_events(external_id);
-
--- ============================================
--- 6. plans - 일간 플랜
--- ============================================
-CREATE TABLE IF NOT EXISTS plans (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id TEXT NOT NULL,
-    plan_date DATE NOT NULL,
-    daily_goal TEXT,  -- 오늘의 목표
-    notes TEXT,
-    reflection TEXT,  -- 하루 마무리 회고
-    completion_rate REAL DEFAULT 0,  -- 완료율 (0.0 ~ 1.0)
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(user_id, plan_date)
-);
-
--- 인덱스
-CREATE INDEX IF NOT EXISTS idx_plans_user_date ON plans(user_id, plan_date);
-
--- ============================================
--- 7. plan_blocks - 시간 블록
--- ============================================
-CREATE TABLE IF NOT EXISTS plan_blocks (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id TEXT NOT NULL,
-    plan_id UUID REFERENCES plans(id) ON DELETE CASCADE,
-    start_time TIME NOT NULL,
-    end_time TIME NOT NULL,
-    title TEXT NOT NULL,
-    category TEXT,  -- '업무', '건강', '자기계발', '휴식' 등
-    description TEXT,
-    is_completed BOOLEAN DEFAULT FALSE,
-    is_from_calendar BOOLEAN DEFAULT FALSE,  -- 캘린더에서 동기화된 블록
-    calendar_event_id UUID REFERENCES calendar_events(id) ON DELETE SET NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 인덱스
-CREATE INDEX IF NOT EXISTS idx_plan_blocks_plan_id ON plan_blocks(plan_id);
-CREATE INDEX IF NOT EXISTS idx_plan_blocks_user_id ON plan_blocks(user_id);
-CREATE INDEX IF NOT EXISTS idx_plan_blocks_time ON plan_blocks(start_time, end_time);
-
--- ============================================
--- 8. memory_chunks - RAG용 텍스트 청크
+-- 9. memory_chunks - RAG용 텍스트 청크
 -- ============================================
 CREATE TABLE IF NOT EXISTS memory_chunks (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id TEXT NOT NULL,
-    source_type TEXT NOT NULL,  -- 'checkin', 'note', 'calendar', 'extraction'
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    source_type TEXT NOT NULL,  -- 'checkin', 'prayer', 'sermon_application'
     source_id UUID NOT NULL,
     content TEXT NOT NULL,
-    chunk_index INTEGER DEFAULT 0,  -- 긴 텍스트 분할시 순서
+    chunk_index INTEGER DEFAULT 0,
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 인덱스
-CREATE INDEX IF NOT EXISTS idx_memory_chunks_user_id ON memory_chunks(user_id);
+CREATE INDEX IF NOT EXISTS idx_memory_chunks_user ON memory_chunks(user_id);
 CREATE INDEX IF NOT EXISTS idx_memory_chunks_source ON memory_chunks(source_type, source_id);
 
+ALTER TABLE memory_chunks ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "memory_chunks_own" ON memory_chunks
+    FOR ALL USING (auth.uid() = user_id);
+
+
 -- ============================================
--- 9. memory_embeddings - 벡터 임베딩 (pgvector)
+-- 10. memory_embeddings - 벡터 임베딩 (pgvector)
 -- ============================================
 CREATE TABLE IF NOT EXISTS memory_embeddings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id TEXT NOT NULL,
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     source_type TEXT NOT NULL,
     source_id UUID NOT NULL,
-    content TEXT NOT NULL,  -- 원본 텍스트 (검색 결과 표시용)
-    embedding vector(1536),  -- OpenAI text-embedding-3-small 차원
+    content TEXT NOT NULL,
+    embedding vector(1536),  -- OpenAI text-embedding-3-small
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 벡터 인덱스 (코사인 유사도)
 CREATE INDEX IF NOT EXISTS idx_memory_embeddings_vector 
 ON memory_embeddings USING ivfflat (embedding vector_cosine_ops) 
 WITH (lists = 100);
 
-CREATE INDEX IF NOT EXISTS idx_memory_embeddings_user_id ON memory_embeddings(user_id);
+CREATE INDEX IF NOT EXISTS idx_memory_embeddings_user ON memory_embeddings(user_id);
+
+ALTER TABLE memory_embeddings ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "memory_embeddings_own" ON memory_embeddings
+    FOR ALL USING (auth.uid() = user_id);
+
+
+-- ============================================
+-- 11. ai_logs - AI 호출 로그
+-- ============================================
+CREATE TABLE IF NOT EXISTS ai_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    action TEXT NOT NULL,  -- 'checkin_summary', 'weekly_report', 'rag_search'
+    input_tokens INTEGER,
+    output_tokens INTEGER,
+    status TEXT DEFAULT 'success',  -- 'success', 'error'
+    error_message TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_logs_user ON ai_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_ai_logs_created ON ai_logs(created_at DESC);
+
+ALTER TABLE ai_logs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "ai_logs_own" ON ai_logs
+    FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "ai_logs_insert" ON ai_logs
+    FOR INSERT WITH CHECK (true);
+
+
+-- ============================================
+-- 12. feedback - 피드백 수집 (파일럿)
+-- ============================================
+CREATE TABLE IF NOT EXISTS feedback (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    category TEXT,  -- 'bug', 'feature', 'complaint', 'praise', 'other'
+    content TEXT NOT NULL,
+    screenshot_url TEXT,
+    status TEXT DEFAULT 'new',  -- 'new', 'reviewed', 'in_progress', 'resolved'
+    admin_note TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_status ON feedback(status);
+CREATE INDEX IF NOT EXISTS idx_feedback_created ON feedback(created_at DESC);
+
+ALTER TABLE feedback ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "feedback_insert_all" ON feedback
+    FOR INSERT WITH CHECK (true);
+CREATE POLICY "feedback_select_own" ON feedback
+    FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "feedback_admin_all" ON feedback
+    FOR ALL USING (
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE profiles.user_id = auth.uid()
+            AND profiles.role = 'admin'
+        )
+    );
+
 
 -- ============================================
 -- RAG 검색 함수 (RPC)
@@ -191,7 +352,7 @@ CREATE OR REPLACE FUNCTION search_memories(
     query_embedding vector(1536),
     match_count INT DEFAULT 5,
     match_threshold FLOAT DEFAULT 0.7,
-    user_id_filter TEXT DEFAULT NULL
+    user_id_filter UUID DEFAULT NULL
 )
 RETURNS TABLE (
     id UUID,
@@ -202,6 +363,7 @@ RETURNS TABLE (
     created_at TIMESTAMPTZ
 )
 LANGUAGE plpgsql
+SECURITY DEFINER
 AS $$
 BEGIN
     RETURN QUERY
@@ -221,34 +383,6 @@ BEGIN
 END;
 $$;
 
--- ============================================
--- RLS (Row Level Security) 정책
--- MVP: 단일 사용자 기준, user_id로 분리
--- ============================================
-
--- RLS 활성화
-ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE checkins ENABLE ROW LEVEL SECURITY;
-ALTER TABLE artifacts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE extractions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE calendar_events ENABLE ROW LEVEL SECURITY;
-ALTER TABLE plans ENABLE ROW LEVEL SECURITY;
-ALTER TABLE plan_blocks ENABLE ROW LEVEL SECURITY;
-ALTER TABLE memory_chunks ENABLE ROW LEVEL SECURITY;
-ALTER TABLE memory_embeddings ENABLE ROW LEVEL SECURITY;
-
--- MVP용 간단 정책: anon key로 모든 작업 허용 (단일 사용자)
--- 프로덕션에서는 Supabase Auth와 연동하여 auth.uid() 사용
-
-CREATE POLICY "Allow all for anon" ON profiles FOR ALL USING (true);
-CREATE POLICY "Allow all for anon" ON checkins FOR ALL USING (true);
-CREATE POLICY "Allow all for anon" ON artifacts FOR ALL USING (true);
-CREATE POLICY "Allow all for anon" ON extractions FOR ALL USING (true);
-CREATE POLICY "Allow all for anon" ON calendar_events FOR ALL USING (true);
-CREATE POLICY "Allow all for anon" ON plans FOR ALL USING (true);
-CREATE POLICY "Allow all for anon" ON plan_blocks FOR ALL USING (true);
-CREATE POLICY "Allow all for anon" ON memory_chunks FOR ALL USING (true);
-CREATE POLICY "Allow all for anon" ON memory_embeddings FOR ALL USING (true);
 
 -- ============================================
 -- 트리거: updated_at 자동 갱신
@@ -271,16 +405,50 @@ CREATE TRIGGER update_checkins_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER update_plans_updated_at
-    BEFORE UPDATE ON plans
+CREATE TRIGGER update_sermons_updated_at
+    BEFORE UPDATE ON sermons
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
--- ============================================
--- 초기 데이터 (선택사항)
--- ============================================
--- 기본 프로필 생성
-INSERT INTO profiles (user_id, display_name, timezone)
-VALUES ('default-user-id', 'User', 'Asia/Seoul')
-ON CONFLICT (user_id) DO NOTHING;
+CREATE TRIGGER update_sermon_applications_updated_at
+    BEFORE UPDATE ON sermon_applications
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
 
+CREATE TRIGGER update_prayers_updated_at
+    BEFORE UPDATE ON prayers
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_feedback_updated_at
+    BEFORE UPDATE ON feedback
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+
+-- ============================================
+-- 프로필 자동 생성 트리거 (Auth 연동)
+-- ============================================
+CREATE OR REPLACE FUNCTION handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO public.profiles (user_id, email, display_name)
+    VALUES (
+        NEW.id,
+        NEW.email,
+        COALESCE(NEW.raw_user_meta_data->>'display_name', split_part(NEW.email, '@', 1))
+    );
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- auth.users에 새 사용자 생성 시 자동으로 profiles 생성
+CREATE OR REPLACE TRIGGER on_auth_user_created
+    AFTER INSERT ON auth.users
+    FOR EACH ROW
+    EXECUTE FUNCTION handle_new_user();
+
+
+-- ============================================
+-- 완료
+-- ============================================
