@@ -8,6 +8,32 @@ st.set_page_config(
 )
 
 # ============================================
+# PWA 설정 (Progressive Web App)
+# ============================================
+st.markdown("""
+<link rel="manifest" href="/static/manifest.json">
+<meta name="theme-color" content="#FF4B4B">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="FaithLoop">
+<link rel="apple-touch-icon" href="/static/icon-192.png">
+<script>
+  // Service Worker 등록
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/static/service-worker.js')
+        .then(registration => {
+          console.log('Service Worker 등록 성공:', registration.scope);
+        })
+        .catch(error => {
+          console.log('Service Worker 등록 실패:', error);
+        });
+    });
+  }
+</script>
+""", unsafe_allow_html=True)
+
+# ============================================
 # 로그인 상태 체크
 # ============================================
 
